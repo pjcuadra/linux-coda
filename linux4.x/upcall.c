@@ -594,16 +594,15 @@ int venus_access_intent(struct super_block *sb, struct CodaFid *fid, size_t coun
         {
             case CODA_ACCESS_TYPE_READ_FINISH:
             case CODA_ACCESS_TYPE_WRITE_FINISH:
-                upcall_flags |= CODA_REQ_ASYNC;
+                error = coda_upcall(coda_vcp(sb), insize, &outsize, inp, CODA_REQ_ASYNC);
                 break;
 
             default:
+                error = coda_upcall(coda_vcp(sb), insize, &outsize, inp, 0);
+                CODA_FREE(inp, insize);
                 break;
         }
 
-        error = coda_upcall(coda_vcp(sb), insize, &outsize, inp, upcall_flags);
-
-        CODA_FREE(inp, insize);
         return error;
 }
 
