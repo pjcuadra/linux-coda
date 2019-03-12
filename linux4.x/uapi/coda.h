@@ -1,4 +1,4 @@
-/* 
+/*
    You may distribute this file under either of the two licenses that
    follow at your discretion.
 */
@@ -64,7 +64,7 @@ Mellon the rights to redistribute these changes without encumbrance.
 #if defined(__NetBSD__) || \
   ((defined(DJGPP) || defined(__CYGWIN32__)) && !defined(KERNEL))
 #include <sys/types.h>
-#endif 
+#endif
 
 #ifndef CODA_MAXSYMLINKS
 #define CODA_MAXSYMLINKS 10
@@ -80,7 +80,7 @@ typedef u_long dev_t;
 typedef void * caddr_t;
 #ifdef DOS
 typedef unsigned __int64 u_quad_t;
-#else 
+#else
 typedef unsigned long long u_quad_t;
 #endif
 
@@ -594,21 +594,21 @@ struct coda_purgeuser_out {
 
 /* coda_zapfile: */
 /* CODA_ZAPFILE is a venus->kernel call */
-struct coda_zapfile_out {  
+struct coda_zapfile_out {
     struct coda_out_hdr oh;
     struct CodaFid CodaFid;
 };
 
 /* coda_zapdir: */
-/* CODA_ZAPDIR is a venus->kernel call */	
-struct coda_zapdir_out {	  
+/* CODA_ZAPDIR is a venus->kernel call */
+struct coda_zapdir_out {
     struct coda_out_hdr oh;
     struct CodaFid CodaFid;
 };
 
 /* coda_purgefid: */
-/* CODA_PURGEFID is a venus->kernel call */	
-struct coda_purgefid_out { 
+/* CODA_PURGEFID is a venus->kernel call */
+struct coda_purgefid_out {
     struct coda_out_hdr oh;
     struct CodaFid CodaFid;
 };
@@ -670,6 +670,8 @@ struct coda_access_intent_in {
 
 struct coda_access_intent_out {
     struct coda_out_hdr out;
+    const char *buf;
+    int count;
 };
 
 /*
