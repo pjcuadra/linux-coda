@@ -263,7 +263,7 @@ static ssize_t coda_psdev_read(struct file * file, char __user * buf,
 		goto out;
 	}
 
-	CODA_FREE(req->uc_data, sizeof(struct coda_in_hdr));
+	CODA_FREE(req->uc_data, ((union inputArgs *)req->uc_data)->ih.uc_inSize);
 	kfree(req);
 out:
 	mutex_unlock(&vcp->vc_mutex);
@@ -325,7 +325,7 @@ static int coda_psdev_release(struct inode * inode, struct file * file)
 
 		/* Async requests need to be freed here */
 		if (req->uc_flags & CODA_REQ_ASYNC) {
-			CODA_FREE(req->uc_data, sizeof(struct coda_in_hdr));
+			CODA_FREE(req->uc_data, ((union inputArgs *)req->uc_data)->ih.uc_inSize);
 			kfree(req);
 			continue;
 		}
