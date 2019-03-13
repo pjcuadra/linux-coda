@@ -51,7 +51,7 @@ coda_file_read(struct file *coda_file, char __user *buf, size_t count, loff_t *p
         if (cfi->cfi_access_intent) {  
                 err = venus_access_intent(coda_inode->i_sb,
                                           coda_i2f(coda_inode), count, *ppos,
-                                          CODA_ACCESS_TYPE_READ);
+                                          CODA_ACCESS_TYPE_READ, false);
                 /* If not a VASTRO file, or old client version */
                 if (err == -EOPNOTSUPP) {
                         cfi->cfi_access_intent = false;
@@ -59,14 +59,14 @@ coda_file_read(struct file *coda_file, char __user *buf, size_t count, loff_t *p
                 }
                 if (err) goto finish_read;
         }
-        
+
         err = host_file->f_op->read(host_file, buf, count, ppos);
 
 finish_read:
         if (cfi->cfi_access_intent) {
                 venus_access_intent(coda_inode->i_sb, coda_i2f(coda_inode),
                                     count, *ppos,
-                                    CODA_ACCESS_TYPE_READ_FINISH);
+                                    CODA_ACCESS_TYPE_READ_FINISH, true);
         }
         return err;
 }
@@ -87,11 +87,11 @@ coda_file_write(struct file *coda_file, const char __user *buf, size_t count, lo
 
         host_inode = file_inode(host_file);
         file_start_write(host_file);
- 
+
         if (cfi->cfi_access_intent) {
                 err = venus_access_intent(coda_inode->i_sb,
                                           coda_i2f(coda_inode), count, *ppos,
-                                          CODA_ACCESS_TYPE_WRITE);
+                                          CODA_ACCESS_TYPE_WRITE, false);
                 /* If not a VASTRO file, or old client version */
                 if (err == -EOPNOTSUPP) {
                         cfi->cfi_access_intent = false;
@@ -113,7 +113,7 @@ finish_write:
         if (cfi->cfi_access_intent) {
                 venus_access_intent(coda_inode->i_sb, coda_i2f(coda_inode),
                                     count, *ppos,
-                                    CODA_ACCESS_TYPE_WRITE_FINISH);
+                                    CODA_ACCESS_TYPE_WRITE_FINISH, true);
         }
         return ret;
 }
@@ -137,7 +137,7 @@ coda_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
                 err = venus_access_intent(coda_inode->i_sb,
                                           coda_i2f(coda_inode),
                                           iov_iter_count(to), iocb->ki_pos,
-                                          CODA_ACCESS_TYPE_READ);
+                                          CODA_ACCESS_TYPE_READ, false);
                 /* If not a VASTRO file, or old client version */
                 if (err == -EOPNOTSUPP) {
                         cfi->cfi_access_intent = false;
@@ -146,14 +146,13 @@ coda_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
                 if (err) goto finish_read;
         }
 
-        err = vfs_iter_read(cfi->cfi_container, to, &iocb->ki_pos, 
-		                    cfi->cfi_access_intent ? RWF_SYNC : 0);
+        err = vfs_iter_read(cfi->cfi_container, to, &iocb->ki_pos, 0);
 
 finish_read:
         if (cfi->cfi_access_intent) {
                 venus_access_intent(coda_inode->i_sb, coda_i2f(coda_inode),
                                     to_tmp, ki_pos_tmp,
-                                    CODA_ACCESS_TYPE_READ_FINISH);
+                                    CODA_ACCESS_TYPE_READ_FINISH, true);
         }
 
 	return err;
@@ -182,7 +181,7 @@ coda_file_write_iter(struct kiocb *iocb, struct iov_iter *to)
                 err = venus_access_intent(coda_inode->i_sb,
                                           coda_i2f(coda_inode),
                                           iov_iter_count(to), iocb->ki_pos,
-                                          CODA_ACCESS_TYPE_WRITE);
+                                          CODA_ACCESS_TYPE_WRITE, false);
                 /* If not a VASTRO file, or old client version */
                 if (err == -EOPNOTSUPP) {
                         cfi->cfi_access_intent = false;
@@ -194,8 +193,7 @@ coda_file_write_iter(struct kiocb *iocb, struct iov_iter *to)
         file_start_write(host_file);
         inode_lock(coda_inode);
 
-        ret = vfs_iter_write(cfi->cfi_container, to, &iocb->ki_pos, 
-		                     cfi->cfi_access_intent ? RWF_SYNC : 0);
+        ret = vfs_iter_write(cfi->cfi_container, to, &iocb->ki_pos, 0);
         coda_inode->i_size = file_inode(host_file)->i_size;
         coda_inode->i_blocks = (coda_inode->i_size + 511) >> 9;
         coda_inode->i_mtime = coda_inode->i_ctime = current_time(coda_inode);
@@ -206,7 +204,7 @@ finish_write:
         if (cfi->cfi_access_intent) {
                 venus_access_intent(coda_inode->i_sb, coda_i2f(coda_inode),
                                     to_tmp, ki_pos_tmp,
-                                    CODA_ACCESS_TYPE_WRITE_FINISH);
+                                    CODA_ACCESS_TYPE_WRITE_FINISH, true);
         }
         return ret;
 }
@@ -250,10 +248,10 @@ coda_file_mmap(struct file *coda_file, struct vm_area_struct *vma)
 	spin_unlock(&cii->c_lock);
 
         if (cfi->cfi_access_intent) {
-                err = venus_access_intent(coda_inode->i_sb, coda_i2f(coda_inode), 
-                                          vma->vm_end - vma->vm_start, 
-                                          vma->vm_pgoff * PAGE_SIZE, 
-                                          CODA_ACCESS_TYPE_MMAP);
+                err = venus_access_intent(coda_inode->i_sb, coda_i2f(coda_inode),
+                                          vma->vm_end - vma->vm_start,
+                                          vma->vm_pgoff * PAGE_SIZE,
+                                          CODA_ACCESS_TYPE_MMAP, false);
                 /* If not a VASTRO file, or old client version */
                 if (err == -EOPNOTSUPP) {
                         cfi->cfi_access_intent = false;
