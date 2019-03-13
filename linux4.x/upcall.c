@@ -44,7 +44,10 @@
 #include "kver_compat.h"
 
 static int coda_upcall(struct venus_comm *vc, int inSize, int *outSize,
-		       union inputArgs *buffer, int flags);
+		       union inputArgs *buffer);
+static int coda_upcall_async(struct venus_comm *vc, int inSize, int *outSize,
+               union inputArgs *buffer);
+
 
 static void *alloc_upcall(int opcode, int size)
 {
@@ -519,7 +522,7 @@ int venus_pioctl(struct super_block *sb, struct CodaFid *fid,
 	}
 
 	error = coda_upcall(coda_vcp(sb), SIZE(ioctl) + data->vi.in_size,
-			    &outsize, inp, CODA_REQ_NO_FLAGS);
+			    &outsize, inp);
 
         if (error) {
 		pr_warn("%s: Venus returns: %d for %s\n",
@@ -690,19 +693,13 @@ static inline void coda_waitfor_upcall(struct venus_comm *vcp,
 	set_current_state(TASK_RUNNING);
 }
 
-
 /*
- * coda_upcall will return an error in the case of
- * failed communication with Venus _or_ will peek at Venus
- * reply and return Venus' error.
- *
- * As venus has 2 types of errors, normal errors (positive) and internal
- * errors (negative), normal errors are negated, while internal errors
- * are all mapped to -EINTR, while showing a nice warning message. (jh)
+ * coda_upcall_async will send an upcall to venus without waiting any
+ * reply.
  */
-static int coda_upcall(struct venus_comm *vcp,
+static int coda_upcall_async(struct venus_comm *vcp,
 		       int inSize, int *outSize,
-		       union inputArgs *buffer, int flags)
+		       union inputArgs *buffer)
 {
 	union outputArgs *out = NULL;
 	union inputArgs *sig_inputArgs = NULL;
@@ -725,7 +722,62 @@ static int coda_upcall(struct venus_comm *vcp,
 	}
 
 	req->uc_data = (void *)buffer;
-	req->uc_flags = flags;
+	req->uc_flags = CODA_REQ_ASYNC;
+	req->uc_inSize = inSize;
+	req->uc_outSize = *outSize ? *outSize : inSize;
+	req->uc_opcode = ((union inputArgs *)buffer)->ih.opcode;
+	req->uc_unique = ++vcp->vc_seq;
+	init_waitqueue_head(&req->uc_sleep);
+
+	/* Fill in the common input args. */
+	((union inputArgs *)buffer)->ih.unique = req->uc_unique;
+
+	/* Append msg to pending queue and poke Venus. */
+	list_add_tail(&req->uc_chain, &vcp->vc_pending);
+
+	wake_up_interruptible(&vcp->vc_waitq);
+
+exit:
+	mutex_unlock(&vcp->vc_mutex);
+	return error;
+}
+
+
+/*
+ * coda_upcall will return an error in the case of
+ * failed communication with Venus _or_ will peek at Venus
+ * reply and return Venus' error.
+ *
+ * As venus has 2 types of errors, normal errors (positive) and internal
+ * errors (negative), normal errors are negated, while internal errors
+ * are all mapped to -EINTR, while showing a nice warning message. (jh)
+ */
+static int coda_upcall(struct venus_comm *vcp,
+		       int inSize, int *outSize,
+		       union inputArgs *buffer)
+{
+	union outputArgs *out = NULL;
+	union inputArgs *sig_inputArgs = NULL;
+	struct upc_req *req = NULL, *sig_req = NULL;
+	int error = 0;
+
+	mutex_lock(&vcp->vc_mutex);
+
+	if (!vcp->vc_inuse) {
+		pr_notice("Venus dead, not sending upcall\n");
+		error = -ENXIO;
+		goto exit;
+	}
+
+	/* Format the request message. */
+	req = kmalloc(sizeof(struct upc_req), GFP_KERNEL);
+	if (!req) {
+		error = -ENOMEM;
+		goto exit;
+	}
+
+	req->uc_data = (void *)buffer;
+	req->uc_flags = 0;
 	req->uc_inSize = inSize;
 	req->uc_outSize = *outSize ? *outSize : inSize;
 	req->uc_opcode = ((union inputArgs *)buffer)->ih.opcode;
@@ -747,12 +799,6 @@ static int coda_upcall(struct venus_comm *vcp,
 	 * it. In no case do we want to restart the syscall.  If it
 	 * was interrupted by a venus shutdown (psdev_close), return
 	 * ENODEV.  */
-
-   	/* Don't wait for a reply for this type of upcalls */
-	if (flags & CODA_REQ_ASYNC) {
-        mutex_unlock(&vcp->vc_mutex);
-        return error;
-    }
 
 	/* Go to sleep.  Wake up on signals only after the timeout. */
 	coda_waitfor_upcall(vcp, req);
